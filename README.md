@@ -16,9 +16,9 @@
 
 #### Reference
 
-Paper(pdf) : https://yanxiao6.github.io/papers/stability_IST21.pdf
+- Paper(pdf) : https://yanxiao6.github.io/papers/stability_IST21.pdf
 
-Code(Git) : https://github.com/ShuoFENG0527/stability-of-smote/tree/main
+- Code(Git) : https://github.com/ShuoFENG0527/stability-of-smote/tree/main
 
 --- 
 #### 프로젝트 진행 방향
