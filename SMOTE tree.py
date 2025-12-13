@@ -1,38 +1,38 @@
-# stabled ADASYN with TREE
+# stabled SMOTE with tree
 
-from imblearn.over_sampling import ADASYN
-import os
-import numpy as np
-import pandas as pd
 import csv
-import warnings
+import os
 import random
 import time
+import warnings
+from collections import Counter
 
+import numpy as np
+import pandas as pd
+from imblearn.over_sampling import SMOTE
+from sklearn import tree
 from sklearn.metrics import (
     roc_auc_score, recall_score, confusion_matrix,
     brier_score_loss, matthews_corrcoef
 )
-from sklearn import tree
-from collections import Counter
 
-warnings.filterwarnings("ignore")
+warnings.filterwarnings('ignore')
 np.set_printoptions(suppress=True)
 
 # ===============================
 # 전역 설정
 # ===============================
-neighbor = 5
 target_defect_ratio = 0.5
+neighbor = 5
 classifier = "tree"
 
 # ===============================
-# Stable ADASYN 
+# Stable SMOTE (절대 수정 ❌)
 # ===============================
-class stable_ADASYN:
+class stable_SMOTE:
     def __init__(self, z_nearest=5):
         self.z_nearest = z_nearest
-
+    
     def fit_sample(self, x_dataset, y_dataset):
         x_dataset = pd.DataFrame(x_dataset)
         x_dataset = x_dataset.rename(
@@ -41,57 +41,61 @@ class stable_ADASYN:
                      15:"ic",16:"cbm",17:"amc",18:"max_cc",19:"avg_cc",20:"bug"}
         )
 
-        clean_dataset = x_dataset[x_dataset["bug"] == 0]
-        defect_dataset = x_dataset[x_dataset["bug"] > 0]
+        defective_instance = x_dataset[x_dataset["bug"] > 0]
+        clean_instance = x_dataset[x_dataset["bug"] == 0]
 
-        need_number = int(
-            (target_defect_ratio * len(x_dataset) - len(defect_dataset)) /
-            (1 - target_defect_ratio)
-        )
+        defective_number = len(defective_instance)
+        need_number = int((target_defect_ratio * len(x_dataset) - defective_number) /
+                          (1 - target_defect_ratio))
+        if need_number <= 0:
+            return False
 
-        select_column = x_dataset.columns[:-1]
-        total_ratio = 0
         total_pair = []
         generated_dataset = []
 
-        for _, row in x_dataset.iterrows():
-            if row["bug"] == 0:
-                continue
-            temp = row.drop("bug")
-            dist = ((x_dataset[select_column] - temp) ** 2).sum(axis=1) ** 0.5
-            nn = x_dataset.assign(distance=dist).sort_values("distance").iloc[1:self.z_nearest+1]
-            total_ratio += len(nn[nn["bug"] == 0]) / self.z_nearest
+        number_on_each_instance = need_number / defective_number
+        rround = number_on_each_instance / self.z_nearest
 
-        for idx, row in defect_dataset.iterrows():
-            temp = row.drop("bug")
-            dist = ((x_dataset[select_column] - temp) ** 2).sum(axis=1) ** 0.5
-            nn = x_dataset.assign(distance=dist).sort_values("distance").iloc[1:self.z_nearest+1]
+        while rround >= 1:
+            for index, row in defective_instance.iterrows():
+                temp = defective_instance.copy(deep=True)
+                dist = ((row - temp) ** 2).sum(axis=1) ** 0.5
+                temp["distance"] = dist
+                neighbors = temp.sort_values("distance")[1:self.z_nearest+1]
+                for a in neighbors.index:
+                    total_pair.append(tuple(sorted([index, a])))
+            rround -= 1
 
-            ratio = len(nn[nn["bug"] == 0]) / self.z_nearest
-            gen_num = round((ratio / total_ratio) * need_number)
+        need_number1 = need_number - len(total_pair)
+        number_on_each_instance = need_number1 / defective_number
 
-            defect_dist = ((defect_dataset[select_column] - temp) ** 2).sum(axis=1) ** 0.5
-            nn_def = defect_dataset.assign(distance=defect_dist)\
-                                    .sort_values("distance").iloc[1:self.z_nearest+1]
+        for index, row in defective_instance.iterrows():
+            temp = defective_instance.copy(deep=True)
+            dist = ((row - temp) ** 2).sum(axis=1) ** 0.5
+            temp["distance"] = dist
+            neighbors = temp.sort_values("distance")[1:self.z_nearest+1]
+            for a in neighbors.sort_values("distance", ascending=False)\
+                              .head(int(number_on_each_instance)).index:
+                total_pair.append(tuple(sorted([index, a])))
 
-            r = gen_num / self.z_nearest
-            while r >= 1:
-                for i in nn_def.index:
-                    total_pair.append(tuple(sorted([idx, i])))
-                r -= 1
+        residue = need_number - len(total_pair)
+        residue_instance = defective_instance.sample(n=residue)
 
-            rest = round(r * self.z_nearest)
-            for i in nn_def.sort_values("distance", ascending=False).head(rest).index:
-                total_pair.append(tuple(sorted([idx, i])))
+        for index, row in residue_instance.iterrows():
+            temp = defective_instance.copy(deep=True)
+            dist = ((row - temp) ** 2).sum(axis=1) ** 0.5
+            temp["distance"] = dist
+            neighbor = temp.sort_values("distance").iloc[-1]
+            total_pair.append(tuple(sorted([index, neighbor.name])))
 
         for (i, j), cnt in Counter(total_pair).items():
-            p1 = defect_dataset.loc[i]
-            p2 = defect_dataset.loc[j]
-            samples = np.linspace(p1, p2, cnt + 2)[1:-1]
+            r1 = defective_instance.loc[i]
+            r2 = defective_instance.loc[j]
+            samples = np.linspace(r1, r2, cnt + 2)[1:-1]
             generated_dataset.extend(samples.tolist())
 
         gen_df = pd.DataFrame(generated_dataset, columns=x_dataset.columns)
-        return pd.concat([clean_dataset, defect_dataset, gen_df])
+        return pd.concat([clean_instance, defective_instance, gen_df])
 
 
 # ===============================
@@ -108,32 +112,32 @@ def separate_data(data):
 # ===============================
 # 결과 저장 폴더
 # ===============================
-OUT_DIR = "output_data/ADASYN_tree/"
+OUT_DIR = "output_data/SMOTE_tree/"
 os.makedirs(OUT_DIR, exist_ok=True)
 
 def open_writer(filename):
     f = open(OUT_DIR + filename, "w", newline="")
     w = csv.writer(f)
     w.writerow(
-        ["inputfile"] + [""] * 10 +
-        ["min", "lower", "avg", "median", "upper", "max", "variance"]
+        ["inputfile"] + [""]*10 +
+        ["min","lower","avg","median","upper","max","variance"]
     )
     return w
 
 
-auc_writer = open_writer("5auc_adasyn_result_on_tree.csv")
-balance_writer = open_writer("5balance_adasyn_result_on_tree.csv")
-recall_writer = open_writer("5recall_adasyn_result_on_tree.csv")
-pf_writer = open_writer("5pf_adasyn_result_on_tree.csv")
-brier_writer = open_writer("5brier_adasyn_result_on_tree.csv")
-mcc_writer = open_writer("5mcc_adasyn_result_on_tree.csv")
+auc_writer = open_writer("5auc_smote_result_on_tree.csv")
+balance_writer = open_writer("5balance_smote_result_on_tree.csv")
+recall_writer = open_writer("5recall_smote_result_on_tree.csv")
+pf_writer = open_writer("5pf_smote_result_on_tree.csv")
+brier_writer = open_writer("5brier_smote_result_on_tree.csv")
+mcc_writer = open_writer("5mcc_smote_result_on_tree.csv")
 
-stable_auc_writer = open_writer("5auc_stable_adasyn_result_on_tree.csv")
-stable_balance_writer = open_writer("5balance_stable_adasyn_result_on_tree.csv")
-stable_recall_writer = open_writer("5recall_stable_adasyn_result_on_tree.csv")
-stable_pf_writer = open_writer("5pf_stable_adasyn_result_on_tree.csv")
-stable_brier_writer = open_writer("5brier_stable_adasyn_result_on_tree.csv")
-stable_mcc_writer = open_writer("5mcc_stable_adasyn_result_on_tree.csv")
+stable_auc_writer = open_writer("5auc_stable_smote_result_on_tree.csv")
+stable_balance_writer = open_writer("5balance_stable_smote_result_on_tree.csv")
+stable_recall_writer = open_writer("5recall_stable_smote_result_on_tree.csv")
+stable_pf_writer = open_writer("5pf_stable_smote_result_on_tree.csv")
+stable_brier_writer = open_writer("5brier_stable_smote_result_on_tree.csv")
+stable_mcc_writer = open_writer("5mcc_stable_smote_result_on_tree.csv")
 
 
 # ===============================
@@ -144,7 +148,12 @@ for inputfile in os.listdir("input_data/"):
     print("Start:", time.asctime())
 
     dataset = pd.read_csv("input_data/" + inputfile)
-    dataset = dataset.drop(columns=["name", "version", "name.1"])
+    dataset = dataset.drop(columns=["name","version","name.1"])
+
+    defect_ratio = len(dataset[dataset["bug"] > 0]) / len(dataset)
+    if defect_ratio > 0.45:
+        print(inputfile, " defect ratio larger than 0.45")
+        continue
 
     dataset["bug"] = (dataset["bug"] > 0).astype(int)
 
@@ -155,7 +164,6 @@ for inputfile in os.listdir("input_data/"):
         auc_l, bal_l, rec_l, pf_l, bri_l, mcc_l = [], [], [], [], [], []
         s_auc_l, s_bal_l, s_rec_l, s_pf_l, s_bri_l, s_mcc_l = [], [], [], [], [], []
 
-        # 🔥 SVM 코드와 동일한 분리 가드 (에러 방지 핵심)
         train, test = separate_data(dataset)
         while (
             len(train[train[:, -1] == 0]) == 0 or
@@ -170,11 +178,8 @@ for inputfile in os.listdir("input_data/"):
             X_tr, y_tr = train[:, :-1], train[:, -1]
             X_te, y_te = test[:, :-1], test[:, -1]
 
-            # -------------------------------
-            # ADASYN
-            # -------------------------------
-            adasyn = ADASYN(n_neighbors=neighbor)
-            X_os, y_os = adasyn.fit_resample(X_tr, y_tr)
+            smote = SMOTE(k_neighbors=neighbor)
+            X_os, y_os = smote.fit_resample(X_tr, y_tr)
 
             clf = tree.DecisionTreeClassifier(random_state=42)
             clf.fit(X_os, y_os)
@@ -190,11 +195,8 @@ for inputfile in os.listdir("input_data/"):
             bri_l.append(brier_score_loss(y_te, pred))
             mcc_l.append(matthews_corrcoef(y_te, pred))
 
-            # -------------------------------
-            # Stable ADASYN
-            # -------------------------------
-            sad = stable_ADASYN(neighbor)
-            s_train = np.array(sad.fit_sample(train, y_tr))
+            ssm = stable_SMOTE(neighbor)
+            s_train = np.array(ssm.fit_sample(train, y_tr))
 
             clf.fit(s_train[:, :-1], s_train[:, -1])
             s_pred = clf.predict(X_te)
@@ -212,12 +214,12 @@ for inputfile in os.listdir("input_data/"):
         def write(writer, arr, name):
             row = arr + [
                 min(arr),
-                np.percentile(arr, 25),
+                np.percentile(arr,25),
                 np.mean(arr),
                 np.median(arr),
-                np.percentile(arr, 75),
+                np.percentile(arr,75),
                 max(arr),
-                np.std(arr, ddof=1)
+                np.std(arr,ddof=1)
             ]
             writer.writerow([inputfile + " " + name] + row)
 
