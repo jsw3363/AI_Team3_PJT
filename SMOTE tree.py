@@ -19,16 +19,14 @@ from sklearn.metrics import (
 warnings.filterwarnings('ignore')
 np.set_printoptions(suppress=True)
 
-# ===============================
+
 # 전역 설정
-# ===============================
 target_defect_ratio = 0.5
 neighbor = 5
 classifier = "tree"
 
-# ===============================
-# Stable SMOTE (절대 수정 ❌)
-# ===============================
+
+# Stable SMOTE 
 class stable_SMOTE:
     def __init__(self, z_nearest=5):
         self.z_nearest = z_nearest
@@ -98,9 +96,8 @@ class stable_SMOTE:
         return pd.concat([clean_instance, defective_instance, gen_df])
 
 
-# ===============================
+
 # Bootstrap 분리
-# ===============================
 def separate_data(data):
     data = np.array(data)
     idx = np.random.randint(0, len(data), len(data))
@@ -109,9 +106,8 @@ def separate_data(data):
     return data[train_idx], data[test_idx]
 
 
-# ===============================
+
 # 결과 저장 폴더
-# ===============================
 OUT_DIR = "output_data/SMOTE_tree/"
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -140,9 +136,8 @@ stable_brier_writer = open_writer("5brier_stable_smote_result_on_tree.csv")
 stable_mcc_writer = open_writer("5mcc_stable_smote_result_on_tree.csv")
 
 
-# ===============================
+
 # 메인 실험 루프
-# ===============================
 for inputfile in os.listdir("input_data/"):
     print("Processing:", inputfile)
     print("Start:", time.asctime())

@@ -1,5 +1,4 @@
 # stabled ADASYN with TREE
-
 from imblearn.over_sampling import ADASYN
 import os
 import numpy as np
@@ -19,16 +18,14 @@ from collections import Counter
 warnings.filterwarnings("ignore")
 np.set_printoptions(suppress=True)
 
-# ===============================
+
 # 전역 설정
-# ===============================
 neighbor = 5
 target_defect_ratio = 0.5
 classifier = "tree"
 
-# ===============================
-# Stable ADASYN 
-# ===============================
+
+# Stable ADASYN 알고리즘
 class stable_ADASYN:
     def __init__(self, z_nearest=5):
         self.z_nearest = z_nearest
@@ -94,9 +91,8 @@ class stable_ADASYN:
         return pd.concat([clean_dataset, defect_dataset, gen_df])
 
 
-# ===============================
+
 # Bootstrap 분리
-# ===============================
 def separate_data(data):
     data = np.array(data)
     idx = np.random.randint(0, len(data), len(data))
@@ -105,9 +101,8 @@ def separate_data(data):
     return data[train_idx], data[test_idx]
 
 
-# ===============================
+
 # 결과 저장 폴더
-# ===============================
 OUT_DIR = "output_data/ADASYN_tree/"
 os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -136,9 +131,8 @@ stable_brier_writer = open_writer("5brier_stable_adasyn_result_on_tree.csv")
 stable_mcc_writer = open_writer("5mcc_stable_adasyn_result_on_tree.csv")
 
 
-# ===============================
+
 # 메인 실험 루프
-# ===============================
 for inputfile in os.listdir("input_data/"):
     print("Processing:", inputfile)
     print("Start:", time.asctime())
@@ -155,7 +149,7 @@ for inputfile in os.listdir("input_data/"):
         auc_l, bal_l, rec_l, pf_l, bri_l, mcc_l = [], [], [], [], [], []
         s_auc_l, s_bal_l, s_rec_l, s_pf_l, s_bri_l, s_mcc_l = [], [], [], [], [], []
 
-        # 🔥 SVM 코드와 동일한 분리 가드 (에러 방지 핵심)
+       
         train, test = separate_data(dataset)
         while (
             len(train[train[:, -1] == 0]) == 0 or
@@ -170,9 +164,8 @@ for inputfile in os.listdir("input_data/"):
             X_tr, y_tr = train[:, :-1], train[:, -1]
             X_te, y_te = test[:, :-1], test[:, -1]
 
-            # -------------------------------
+            
             # ADASYN
-            # -------------------------------
             adasyn = ADASYN(n_neighbors=neighbor)
             X_os, y_os = adasyn.fit_resample(X_tr, y_tr)
 
@@ -190,9 +183,8 @@ for inputfile in os.listdir("input_data/"):
             bri_l.append(brier_score_loss(y_te, pred))
             mcc_l.append(matthews_corrcoef(y_te, pred))
 
-            # -------------------------------
+            
             # Stable ADASYN
-            # -------------------------------
             sad = stable_ADASYN(neighbor)
             s_train = np.array(sad.fit_sample(train, y_tr))
 

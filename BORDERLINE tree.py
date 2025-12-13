@@ -21,16 +21,14 @@ np.set_printoptions(suppress=True)
 
 warnings.filterwarnings("ignore", category=FutureWarning)
 
-# =========================
-# Global settings
-# =========================
+
+# 전역설정
 classifier = "tree"
 neighbor = 5
 target_defect_ratio = 0.5
 
-# =========================
-# Stable Borderline SMOTE (절대 수정 금지)
-# =========================
+
+# Stable Borderline SMOTE 알고리즘
 class stable_SMOTE:
     def __init__(self, z_nearest=5):
         self.z_nearest = z_nearest
@@ -54,7 +52,7 @@ class stable_SMOTE:
         select_cols = x_dataset.columns[:-1]
         container = pd.DataFrame(columns=x_dataset.columns)
 
-        # STEP 1: borderline instance selection
+        
         for _, row in x_dataset.iterrows():
             if row["bug"] == 0:
                 continue
@@ -68,7 +66,7 @@ class stable_SMOTE:
         if len(container) == 0:
             return pd.concat([clean, defective])
 
-        # STEP 2–3: pair selection + interpolation
+        
         total_pair = []
         per_instance = need_number / len(container)
 
@@ -90,9 +88,8 @@ class stable_SMOTE:
         gen_df = pd.DataFrame(generated, columns=x_dataset.columns)
         return pd.concat([clean, defective, gen_df])
 
-# =========================
-# Bootstrap split
-# =========================
+
+# 부트스트랩 스플릿
 def separate_data(data):
     data = np.array(data)
     idx = np.random.randint(0, len(data), len(data))
@@ -100,9 +97,8 @@ def separate_data(data):
     test = data[list(set(range(len(data))) - set(idx))]
     return train, test
 
-# =========================
-# CSV writers
-# =========================
+
+# CSV 작성
 os.makedirs("output_data/BORDERLINE_tree", exist_ok=True)
 
 def open_writer(name):
@@ -129,9 +125,8 @@ spf_f, spf_w = open_writer("pf_stable")
 sbri_f, sbri_w = open_writer("brier_stable")
 smcc_f, smcc_w = open_writer("mcc_stable")
 
-# =========================
-# Main experiment loop
-# =========================
+
+# 메인루프
 for inputfile in os.listdir("input_data"):
     print(inputfile)
 
@@ -150,7 +145,7 @@ for inputfile in os.listdir("input_data"):
         Xte, yte = test[:,:-1], test[:,-1]
 
         for _ in range(10):
-            # ----- Borderline SMOTE -----
+            # Borderline SMOTE 
             sm = BorderlineSMOTE(k_neighbors=neighbor, kind="borderline-1")
             Xs, ys = sm.fit_resample(Xtr, ytr)
 
@@ -171,7 +166,7 @@ for inputfile in os.listdir("input_data"):
             # ----- Stable Borderline SMOTE -----
             st = stable_SMOTE()
             st_tr = st.fit_sample(train, ytr)
-            st_tr = st_tr.values  # ★ 핵심 수정 (DataFrame → numpy)
+            st_tr = st_tr.values  
 
             Xs2, ys2 = st_tr[:,:-1], st_tr[:,-1]
 
