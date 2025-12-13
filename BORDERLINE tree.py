@@ -19,6 +19,8 @@ from collections import Counter
 warnings.filterwarnings("ignore", category=FutureWarning, module="sklearn", lineno=196)
 np.set_printoptions(suppress=True)
 
+warnings.filterwarnings("ignore", category=FutureWarning)
+
 # =========================
 # Global settings
 # =========================
