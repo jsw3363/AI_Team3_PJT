@@ -1,0 +1,167 @@
+import os
+import glob
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# =========================
+# 설정
+# =========================
+NEIGHBOR = 5
+DATASET_TAG = "bank_marketing"
+BASE_DIR = "new_output_data"
+OUT_PLOT_DIR = os.path.join(BASE_DIR, "plots_stats")
+os.makedirs(OUT_PLOT_DIR, exist_ok=True)
+
+DIRS = {
+    "SMOTE":      os.path.join(BASE_DIR, "new_SMOTE_svm"),
+    "Borderline": os.path.join(BASE_DIR, "new_BORDERLINE_svm"),
+    "ADASYN":     os.path.join(BASE_DIR, "new_ADASYN_svm"),
+}
+
+# metric별 파일 이름에 들어가는 키워드
+# 예: 5balance_smote_result_on_svm_bank_marketing.csv
+METRICS = ["auc", "balance", "recall", "pf", "brier", "mcc"]
+
+STAT_NAMES = ["min", "lower", "avg", "median", "upper", "max", "variance"]
+
+def percentile_midpoint(x, q):
+    """numpy 버전 차이 대응: 25/75% 분위수 midpoint 방식"""
+    x = np.asarray(x)
+    try:
+        return np.percentile(x, q, method="midpoint")
+    except TypeError:
+        return np.percentile(x, q, interpolation="midpoint")
+
+def row_inner10_to_stats(row, inner_k=10):
+    """
+    한 row에서 inner 10개 결과를 뽑고,
+    min/lower(q1)/avg/median/upper(q3)/max/variance(std) 계산해서 dict 반환
+    """
+    # 첫 칼럼은 문자열(inputfile)이라 제외
+    nums = pd.to_numeric(row.iloc[1:], errors="coerce").dropna().to_numpy()
+
+    if len(nums) < inner_k:
+        return None
+
+    inner = nums[:inner_k]
+    q1, q3 = percentile_midpoint(inner, [25, 75])
+
+    stats = {
+        "min": float(np.min(inner)),
+        "lower": float(q1),
+        "avg": float(np.mean(inner)),
+        "median": float(np.median(inner)),
+        "upper": float(q3),
+        "max": float(np.max(inner)),
+        "variance": float(np.std(inner)),  # 너 코드가 std 쓰는 흐름이라 동일하게 std로 맞춤
+    }
+    return stats
+
+def find_csv(method_dir: str, metric: str, stable: bool):
+    m = metric.lower()
+    if stable:
+        pattern = os.path.join(method_dir, f"{NEIGHBOR}{m}_stable_*_result_on_svm_{DATASET_TAG}.csv")
+    else:
+        pattern = os.path.join(method_dir, f"{NEIGHBOR}{m}_*result_on_svm_{DATASET_TAG}.csv")
+
+    candidates = glob.glob(pattern)
+    if stable:
+        candidates = [p for p in candidates if "_stable_" in os.path.basename(p)]
+    else:
+        candidates = [p for p in candidates if "_stable_" not in os.path.basename(p)]
+
+    return candidates[0] if candidates else None
+
+def load_stats_boxes(csv_path: str):
+    """
+    csv의 모든 row(=outer 반복)에 대해 stat 7개를 계산하고,
+    STAT_NAMES 순서대로 박스플롯용 리스트 [ [min들], [lower들], ... ] 반환
+    """
+    df = pd.read_csv(csv_path)
+    collected = {k: [] for k in STAT_NAMES}
+
+    for _, row in df.iterrows():
+        s = row_inner10_to_stats(row, inner_k=10)
+        if s is None:
+            continue
+        for k in STAT_NAMES:
+            collected[k].append(s[k])
+
+    return [collected[k] for k in STAT_NAMES]
+
+STAT_NAMES = ["min", "lower", "avg", "median", "upper", "max", "variance"]
+
+def _set_ylim_by_metric(ax, metric: str):
+    m = metric.lower()
+    if m in ["auc", "balance", "recall", "pf", "brier"]:
+        ax.set_ylim(0.0, 1.0)
+    elif m == "mcc":
+        ax.set_ylim(-1.0, 1.0)
+
+def plot_metric(metric: str):
+    metric = metric.lower()
+
+    panels = [
+        ("SMOTE",      False, "SMOTE"),
+        ("SMOTE",      True,  "S-SMOTE"),
+        ("Borderline", False, "Borderline"),
+        ("Borderline", True,  "S-Borderline"),
+        ("ADASYN",     False, "ADASYN"),
+        ("ADASYN",     True,  "S-ADASYN"),
+    ]
+
+    fig, axes = plt.subplots(1, 6, figsize=(22, 4), sharey=True)
+
+    # 위쪽 큰 여백 줄이기
+    fig.suptitle(
+        f"{metric.upper()} (x=min/lower/avg/median/upper/max/variance)",
+        fontsize=12,
+        y=0.98
+    )
+    fig.subplots_adjust(left=0.04, right=0.995, top=0.82, bottom=0.22, wspace=0.18)
+
+    for ax, (base_method, is_stable, title) in zip(axes, panels):
+        csv_path = find_csv(DIRS[base_method], metric, stable=is_stable)
+
+# --- 기존 title 세팅 ---
+# ax.set_title(title, fontsize=11)
+
+# --- 수정: title에 variance 평균(μ) 넣기 ---
+        if csv_path is None:
+            ax.set_title(title, fontsize=11)
+        else:
+            boxes = load_stats_boxes(csv_path)  # 7개 stat 리스트
+            var_vals = boxes[-1]               # variance(=std) 값들이 outer 10개 분포로 들어있음
+            var_mu = float(np.mean(var_vals)) if len(var_vals) > 0 else float("nan")
+
+            ax.set_title(f"{title} (var={var_mu:.4f})", fontsize=11)
+
+            # 그리고 아래에서 boxplot은 boxes 그대로 사용
+            ax.boxplot(boxes, showfliers=True)
+
+        # 박스플롯
+        ax.boxplot(boxes, showfliers=True)
+
+        # variance 라벨에 대표값(평균) 같이 표기
+        var_vals = boxes[-1]
+        var_mu = float(np.mean(var_vals)) if len(var_vals) > 0 else float("nan")
+
+        xticklabels = STAT_NAMES.copy()
+        xticklabels[-1] = f"variance\n(μ={var_mu:.4f})"   # <-- 여기!
+
+        ax.set_xticks(range(1, len(STAT_NAMES) + 1))
+        ax.set_xticklabels(xticklabels, rotation=30, ha="right", fontsize=9)
+
+        _set_ylim_by_metric(ax, metric)
+
+    axes[0].set_ylabel(metric.upper())
+
+    save_path = os.path.join(OUT_PLOT_DIR, f"{metric}_{DATASET_TAG}_svm_stats.png")
+    plt.savefig(save_path, dpi=200, bbox_inches="tight")
+    plt.close(fig)
+    print(f"[Saved] {save_path}")
+
+if __name__ == "__main__":
+    for m in METRICS:
+        plot_metric(m)
